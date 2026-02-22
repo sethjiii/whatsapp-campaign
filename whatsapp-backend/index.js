@@ -1,49 +1,28 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import multer from "multer";
-import csv from "csv-parser";
-import fs from "fs";
+import axios from "axios";
 import { connectDB } from "./db.js";
 import Contact from "./models/Contact.js";
 import Campaign from "./models/Campaign.js";
 import Log from "./models/Log.js";
 import { messageQueue } from "./queue.js";
 import Settings from "./models/Settings.js";
-import axios from "axios";
+import contactRoutes from "./routes/contacts.js";
+
 
 
 dotenv.config();
 await connectDB();
 
 const app = express();
-const upload = multer({ dest: "uploads/" });
-
 app.use(cors());
 app.use(express.json());
 
-/* CONTACT UPLOAD */
-app.post("/contacts/upload", upload.single("file"), (req, res) => {
-    const contacts = [];
-
-    fs.createReadStream(req.file.path)
-        .pipe(csv())
-        .on("data", row => {
-            if (row.phone) {
-                contacts.push({
-                    phone: row.phone.trim(),
-                    name: row.name || ""
-                });
-            }
-        })
-        .on("end", async () => {
-            await Contact.insertMany(contacts, { ordered: false });
-            fs.unlinkSync(req.file.path);
-            res.json({ success: true, count: contacts.length });
-        });
-});
+app.use("/contacts", contactRoutes);
 
 /* START CAMPAIGN */
+
 app.post("/campaign/start", async (req, res) => {
     const { message } = req.body;
 
@@ -106,48 +85,48 @@ app.post("/settings", async (req, res) => {
 });
 
 app.get("/settings/test", async (req, res) => {
-  const settings = await Settings.findOne();
+    const settings = await Settings.findOne();
 
-  if (
-    !settings ||
-    !settings.evolutionApiUrl ||
-    !settings.evolutionApiKey ||
-    !settings.instanceName
-  ) {
-    return res.status(400).json({
-      success: false,
-      message: "Settings not fully configured",
-    });
-  }
+    if (
+        !settings ||
+        !settings.evolutionApiUrl ||
+        !settings.evolutionApiKey ||
+        !settings.instanceName
+    ) {
+        return res.status(400).json({
+            success: false,
+            message: "Settings not fully configured",
+        });
+    }
 
-  const baseUrl = settings.evolutionApiUrl.replace(/\/+$/, "");
+    const baseUrl = settings.evolutionApiUrl.replace(/\/+$/, "");
 
-  try {
-    const response = await axios.get(
-      `${baseUrl}/instance/info/${settings.instanceName}`,
-      {
-        headers: {
-          apikey: settings.evolutionApiKey,
-        },
-        timeout: 5000,
-      }
-    );
+    try {
+        const response = await axios.get(
+            `${baseUrl}/instance/info/${settings.instanceName}`,
+            {
+                headers: {
+                    apikey: settings.evolutionApiKey,
+                },
+                timeout: 5000,
+            }
+        );
 
-    return res.json({
-      success: true,
-      status: response.data?.state || "CONNECTED",
-      instance: settings.instanceName,
-    });
+        return res.json({
+            success: true,
+            status: response.data?.state || "CONNECTED",
+            instance: settings.instanceName,
+        });
 
-  } catch (err) {
-    return res.status(400).json({
-      success: false,
-      message:
-        err.response?.data?.message ||
-        err.response?.statusText ||
-        err.message,
-    });
-  }
+    } catch (err) {
+        return res.status(400).json({
+            success: false,
+            message:
+                err.response?.data?.message ||
+                err.response?.statusText ||
+                err.message,
+        });
+    }
 });
 
 
@@ -170,13 +149,6 @@ app.get("/settings", async (req, res) => {
     const settings = await Settings.findOne();
     res.json(settings || {});
 });
-
-/* CONTACT LIST */
-app.get("/contacts", async (req, res) => {
-    const contacts = await Contact.find().sort({ createdAt: -1 });
-    res.json(contacts);
-});
-
 
 
 app.listen(4000, () => {
